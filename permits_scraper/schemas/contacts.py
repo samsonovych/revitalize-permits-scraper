@@ -39,6 +39,9 @@ class ApplicantData(BaseModel):
     phone_number: Optional[str] = None
     address: Optional[str] = None
 
+    class Config:
+        extra = "allow"
+
 
 class OwnerData(BaseModel):
     """Owner contact information.
@@ -64,3 +67,6 @@ class OwnerData(BaseModel):
     last_name: Optional[str] = None
     company_name: Optional[str] = None
     address: Optional[str] = None
+
+    class Config:
+        extra = "allow"

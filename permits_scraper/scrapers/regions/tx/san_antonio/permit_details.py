@@ -10,7 +10,7 @@ Design
 - Open/Closed: parsing helpers are small, cohesive, and can be extended
   without modifying the high-level scraping flow.
 - Liskov Substitution: the scraper conforms to the `BaseScraper` interface
-  and returns a Pydantic `BaseModel` (`SearchResult`).
+  and returns a Pydantic `BaseModel` (`PermitRecord`).
 - Interface Segregation: the base interface remains minimal; consumers depend
   only on what they need.
 - Dependency Inversion: the scraping logic depends on abstractions (selectors
@@ -19,24 +19,18 @@ Design
 
 from __future__ import annotations
 
-import asyncio
 import re
 from typing import Optional, Dict, List
-import json
-import os
-from pathlib import Path
-from uuid import uuid4
 
 from dotenv.main import logger
-from pydantic import PrivateAttr
-from playwright.async_api import Browser, BrowserContext, Locator, Page, async_playwright
+from playwright.async_api import Browser, Locator, Page, async_playwright
+from permits_scraper.scrapers.playwright_scraper import PlaywrightBaseScraper
 
 from permits_scraper.schemas.contacts import ApplicantData, OwnerData
-from permits_scraper.schemas.search import SearchResult
-from permits_scraper.scrapers.base import BaseScraper
+from permits_scraper.schemas.permit_record import PermitRecord
 
 
-class PermitDetailsScraper(BaseScraper):
+class PermitDetailsScraper(PlaywrightBaseScraper):
     """Scraper for San Antonio (TX) Accela permit details.
 
     Parameters
@@ -62,57 +56,31 @@ class PermitDetailsScraper(BaseScraper):
     See Also
     --------
     BaseScraper : Minimal scraping interface.
-    SearchResult : Return schema combining parsed contacts.
+    PermitRecord : Return schema combining parsed contacts.
 
     Examples
     --------
     >>> scraper = PermitDetailsScraper()
     >>> result = scraper.scrape("MEP-TRD-APP25-33127895")
-    >>> isinstance(result, SearchResult)
+    >>> isinstance(result, PermitRecord)
     True
     """
 
-    _headless: bool = PrivateAttr(default=True)
-    _base_url: str = PrivateAttr(
-        default=(
-            "https://aca-prod.accela.com/COSA/Cap/CapHome.aspx?module=Building&TabName=Building"
-        )
-    )
+    _region: str = "tx"
+    _city: str = "san_antonio"
+    _base_url: str = "https://aca-prod.accela.com/COSA/Cap/CapHome.aspx?module=Building&TabName=Building"
 
-    def scrape(self, application_numbers: List[str]) -> Dict[str, SearchResult]:  # type: ignore[override]
-        """Scrape permit details for a single application number.
-
-        Parameters
-        ----------
-        application_numbers : List[str]
-            The application number to search for on the Accela portal.
-
-        Returns
-        -------
-        Dict[str, SearchResult]
-            Parsed applicant and owner contact data.
-        """
-        try:
-            return asyncio.run(self.scrape_async(application_numbers))
-        except RuntimeError as exc:
-            if "asyncio.run() cannot be called from a running event loop" in str(exc):
-                raise RuntimeError(
-                    "scrape() cannot be called from an active event loop; "
-                    "use `await scrape_async(application_numbers)` instead."
-                ) from exc
-            raise
-
-    async def scrape_async(self, application_numbers: List[str]) -> Dict[str, SearchResult]:
+    async def scrape_async(self, permit_numbers: List[str]) -> Dict[str, PermitRecord]:
         """Asynchronously scrape permit details for a single application.
 
         Parameters
         ----------
-        application_numbers : List[str]
+        permit_numbers : List[str]
             The application number to search for on the Accela portal.
 
         Returns
         -------
-        Dict[str, SearchResult]
+        Dict[str, PermitRecord]
             Parsed applicant and owner contact data.
         """
         async with async_playwright() as playwright:
@@ -122,10 +90,10 @@ class PermitDetailsScraper(BaseScraper):
             page: Page = await context.new_page()
 
             try:
-                results: Dict[str, SearchResult] = {}
-                for application_number in application_numbers:
+                results: Dict[str, PermitRecord] = {}
+                for permit_number in permit_numbers:
                     await self._goto_search_page(page)
-                    await self._submit_search(page, application_number)
+                    await self._submit_search(page, permit_number)
 
                     # Wait until the page title appears
                     await page.wait_for_selector('#ctl00_PlaceHolderMain_shPermitDetail_lblSectionTitle', state='visible')
@@ -133,135 +101,34 @@ class PermitDetailsScraper(BaseScraper):
                     applicant: Optional[ApplicantData] = await self._extract_applicant(page)
                     owner: Optional[OwnerData] = await self._extract_owner(page)
 
-                    result = SearchResult(applicant=applicant, owner=owner)
-                    results[application_number] = result
+                    result = PermitRecord(
+                        permit_number=permit_number,
+                        applicant=applicant,
+                        owner=owner)
+
 
                     # Persist per-permit result immediately as a crash-safe fallback
-                    self._persist_result(application_number, result)
+                    self.persist_result(permit_number, result)
+
+                    results[permit_number] = result
 
                 return results
             finally:
                 await browser.close()
 
-    @property
-    def headless(self) -> bool:
-        """Return current headless mode setting."""
-        return self._headless
-
-    @property
-    def base_url(self) -> str:
-        """Return the configured base URL for searches."""
-        return self._base_url
-
-    def set_headless(self, value: bool) -> None:
-        """Set headless mode.
-
-        Parameters
-        ----------
-        value : bool
-            Whether to run the Chromium browser in headless mode.
-        """
-        self._headless = value
-
-    def set_base_url(self, value: str) -> None:
-        """Set the base search URL.
-
-        Parameters
-        ----------
-        value : str
-            Fully qualified search page URL for the Accela portal.
-        """
-        self._base_url = value
-
-    async def _configure_network_blocking(self, context: BrowserContext) -> None:
-        """Block non-essential resources to reduce bandwidth usage.
-
-        Parameters
-        ----------
-        context : BrowserContext
-            The Playwright browser context to configure.
-
-        Notes
-        -----
-        Blocks resource types: ``image``, ``media``, ``font``, ``stylesheet``.
-        Keeps ``document``, ``script``, ``xhr``, and ``fetch`` to ensure
-        dynamic content and the DOM are still rendered.
-        """
-        blocked_types = {"image", "media", "font", "stylesheet"}
-
-        async def handler(route):  # type: ignore[no-untyped-def]
-            try:
-                if route.request.resource_type in blocked_types:
-                    await route.abort()
-                else:
-                    await route.continue_()
-            except Exception:
-                try:
-                    await route.continue_()
-                except Exception:
-                    pass
-
-        await context.route("**/*", handler)
-
-    def _result_output_dir(self) -> Path:
-        """Return the output directory for per-permit results.
-
-        Returns
-        -------
-        Path
-            Directory path ``permits_scraper/data/regions/tx/san_antonio`` relative
-            to the package root. The directory is created if it does not exist.
-        """
-        pkg_root = Path(__file__).resolve().parents[4]
-        out_dir = pkg_root / "data" / "regions" / "tx" / "san_antonio"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        return out_dir
-
-    def _persist_result(self, application_number: str, result: SearchResult) -> None:
-        """Atomically persist a single permit result to a JSON file.
-
-        This writes one JSON file per permit (``<permit_id>.json``) using an
-        atomic replace to avoid partial writes and cross-process corruption.
-
-        Parameters
-        ----------
-        application_number : str
-            The permit/application identifier used as the filename stem.
-        result : SearchResult
-            The parsed result to serialize and persist.
-        """
-        try:
-            out_dir = self._result_output_dir()
-            final_path = out_dir / f"{application_number}.json"
-
-            # Serialize result to JSON (pydantic v2)
-            payload = json.dumps(result.model_dump(mode="json"), ensure_ascii=False, sort_keys=True, indent=2)
-
-            # Write to a temp file in the same directory, then atomically replace
-            tmp_name = f".{application_number}.{uuid4().hex}.tmp"
-            tmp_path = out_dir / tmp_name
-            tmp_path.write_text(payload, encoding="utf-8")
-            os.replace(tmp_path, final_path)
-        except Exception as e:
-            # Best-effort persistence; do not fail the scrape due to IO errors
-            try:
-                logger.error(f"Failed to persist result for {application_number}: {e}")
-            except Exception:
-                pass
-
     async def _goto_search_page(self, page: Page) -> None:
         """Navigate to the base search page and wait for network idle."""
         await page.goto(self._base_url, wait_until="domcontentloaded")
 
-    async def _submit_search(self, page: Page, application_number: str) -> None:
+    async def _submit_search(self, page: Page, permit_number: str) -> None:
         """Fill the permit number and submit the search form."""
         # Wait for the form to be ready
         await page.wait_for_selector('input[name="ctl00$PlaceHolderMain$generalSearchForm$txtGSPermitNumber"]', state='visible')
 
-        application_number_field: Locator = page.locator(
+        permit_number_field: Locator = page.locator(
             'input[name="ctl00$PlaceHolderMain$generalSearchForm$txtGSPermitNumber"]'
         )
-        await application_number_field.fill(application_number)
+        await permit_number_field.fill(permit_number)
 
         # Try with different selectors
         search_button = page.locator('a[id="ctl00_PlaceHolderMain_btnNewSearch"]')

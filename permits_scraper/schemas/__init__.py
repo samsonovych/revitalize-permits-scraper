@@ -4,10 +4,10 @@ Exposes commonly used models for convenient imports.
 """
 
 from .contacts import ApplicantData, OwnerData
-from .search import SearchResult
+from .permit_record import PermitRecord
 
 __all__ = [
     "ApplicantData",
     "OwnerData",
-    "SearchResult",
+    "PermitRecord",
 ]

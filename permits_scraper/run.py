@@ -75,12 +75,12 @@ def print_banner() -> None:
     print(banner)
 
 
-def check_connection(url: str = "https://aca-prod.accela.com", timeout: float = 5.0) -> bool:
+def check_connection(url: str, timeout: float = 5.0) -> bool:
     """Check reachability of a given HTTPS URL via HEAD request.
 
     Parameters
     ----------
-    url : str, default="https://aca-prod.accela.com"
+    url : str
         Endpoint to check.
     timeout : float, default=5.0
         Timeout in seconds for the network check.
@@ -98,7 +98,7 @@ def check_connection(url: str = "https://aca-prod.accela.com", timeout: float = 
         return False
 
 
-def connection_status_text(is_up: bool) -> str:
+def connection_status_text(url: str, is_up: bool) -> str:
     """Return a colored status line for Accela reachability.
 
     Parameters
@@ -112,9 +112,9 @@ def connection_status_text(is_up: bool) -> str:
         Colored status line suitable for console display.
     """
     if is_up:
-        return f"aca-prod.accela.com Connection status: {GREEN}available{RESET}"
+        return f"{url} Connection status: {GREEN}available{RESET}"
     return (
-        f"aca-prod.accela.com Connection status: {RED}unavailable{RESET}"
+        f"{url} Connection status: {RED}unavailable{RESET}"
         f" {YELLOW}(hint: try to use a proxy or VPN){RESET}"
     )
 
@@ -157,15 +157,24 @@ def select_scraper(region: str, city: str):  # -> PermitDetailsScraper
     """
     r = region.lower().strip()
     c = city.lower().strip().replace(" ", "_")
-    if r == "tx" and c == "san_antonio":
-        from permits_scraper.scrapers.regions.tx.san_antonio.permit_details import (
-            PermitDetailsScraper,
-        )
+    key = f"{r}-{c}"
+    match key:
+        case "tx-san_antonio":
+            from permits_scraper.scrapers.regions.tx.san_antonio.permit_details import (
+                PermitDetailsScraper,
+            )
 
-        return PermitDetailsScraper()
-    msg = f"No scraper available for region={region!r}, city={city!r}."
-    logging.error(msg)
-    raise ValueError(msg)
+            return PermitDetailsScraper()
+        case "tx-austin":
+            from permits_scraper.scrapers.regions.tx.austin.permit_details import (
+                PermitDetailsScraper,
+            )
+
+            return PermitDetailsScraper()
+        case _:
+            msg = f"No scraper available for region={region!r}, city={city!r}."
+            logging.error(msg)
+            raise ValueError(msg)
 
 
 def _flatten(prefix: str, obj: Any, out: Dict[str, Any]) -> None:
@@ -457,8 +466,10 @@ def main() -> None:
     setup_logging()
     while True:
         print_banner()
-        is_up = check_connection()
-        print(connection_status_text(is_up))
+        check_urls = {"https://aca-prod.accela.com", "https://abc.austintexas.gov"}
+        for url in check_urls:
+            is_up = check_connection(url=url)
+            print(connection_status_text(url, is_up))
         print()
         choice = prompt_menu()
         print()
