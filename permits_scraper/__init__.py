@@ -1,1 +1,1 @@
-"""OSINT Agent package."""
+"""Permits Scraper package."""

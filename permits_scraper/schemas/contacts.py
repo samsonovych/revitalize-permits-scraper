@@ -56,17 +56,23 @@ class OwnerData(BaseModel):
         Owner's company name.
     address : Optional[str], default=None
         Owner's mailing or physical address consolidated as a single string.
+    phone_number : Optional[str], default=None
+        Owner's phone number in any captured format.
+    email : Optional[str], default=None
+        Owner's email address.
 
     Examples
     --------
     >>> OwnerData(last_name="SMITH", first_name="JOHN")
-    OwnerData(first_name='JOHN', last_name='SMITH', phone_number=None, address=None)
+    OwnerData(first_name='JOHN', last_name='SMITH', phone_number=None, address=None, email=None)
     """
 
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     company_name: Optional[str] = None
     address: Optional[str] = None
+    phone_number: Optional[str] = None
+    email: Optional[str] = None
 
     class Config:
         extra = "allow"

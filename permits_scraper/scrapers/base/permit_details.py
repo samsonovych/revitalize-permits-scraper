@@ -2,28 +2,42 @@
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional, Callable
 from permits_scraper.schemas.permit_record import PermitRecord
 from pydantic import BaseModel, PrivateAttr
+import asyncio
 import json
 import os
 from uuid import uuid4
 from dotenv.main import logger
 
 
-class PermitsBaseScraper(ABC, BaseModel):
-    """Base class for all scrapers."""
+class PermitDetailsBaseScraper(ABC, BaseModel):
+    """Base class for permits details scrapers."""
 
     _region: str = PrivateAttr(..., init=True)
     _city: str = PrivateAttr(..., init=True)
 
-    @abstractmethod
-    def scrape(self, permit_numbers: List[str]) -> Dict[str, PermitRecord]:
-        """Scrape the data from the URL."""
-        pass
+    def scrape(self, permit_numbers: List[str], *args, **kwargs) -> Dict[str, PermitRecord]:
+        """Scrape the data from the URL.
+
+        Parameters
+        ----------
+        permit_numbers : List[str]
+            The permit numbers to scrape.
+        """
+        try:
+            return asyncio.run(self.scrape_async(permit_numbers, *args, **kwargs))
+        except RuntimeError as exc:
+            if "asyncio.run() cannot be called from a running event loop" in str(exc):
+                raise RuntimeError(
+                    "scrape() cannot be called from an active event loop; "
+                    "use `await scrape_async(permit_numbers)` instead."
+                ) from exc
+            raise
 
     @abstractmethod
-    async def scrape_async(self, permit_numbers: List[str]) -> Dict[str, PermitRecord]:
+    async def scrape_async(self, permit_numbers: List[str], *args, **kwargs) -> Dict[str, PermitRecord]:
         """Scrape the data from the URL (Asynchronously)."""
         pass
 
@@ -36,12 +50,12 @@ class PermitsBaseScraper(ABC, BaseModel):
             Directory path ``permits_scraper/data/regions/tx/san_antonio`` relative
             to the package root. The directory is created if it does not exist.
         """
-        pkg_root = Path(__file__).resolve().parents[1]
-        out_dir = pkg_root / "data" / "regions" / self._region / self._city
+        pkg_root = Path(__file__).resolve().parents[2]
+        out_dir = pkg_root / "data" / "regions" / "permits_details" / self._region / self._city
         out_dir.mkdir(parents=True, exist_ok=True)
         return out_dir
 
-    def persist_result(self, permit_number: str, result: PermitRecord) -> None:
+    def persist_result(self, permit_number: str, result: PermitRecord) -> str:
         """Atomically persist a single permit result to a JSON file.
 
         This writes one JSON file per permit (``<permit_id>.json``) using an
@@ -53,6 +67,11 @@ class PermitsBaseScraper(ABC, BaseModel):
             The permit/application identifier used as the filename stem.
         result : PermitRecord
             The parsed result to serialize and persist.
+
+        Returns
+        -------
+        str
+            The path to the persisted result.
         """
         try:
             out_dir = self._result_output_dir()
@@ -66,10 +85,19 @@ class PermitsBaseScraper(ABC, BaseModel):
             tmp_path = out_dir / tmp_name
             tmp_path.write_text(payload, encoding="utf-8")
             os.replace(tmp_path, final_path)
+
+            return final_path
         except Exception as e:
             # Best-effort persistence; do not fail the scrape due to IO errors
             try:
                 logger.error(f"Failed to persist result for {permit_number}: {e}")
+            except Exception:
+                pass
+
+    def process_progress_callback(self, progress_callback: Optional[Callable[[int, int, int], None]], success_chunks_inc: int, failed_chunks_inc: int, total_chunks: int) -> None:
+        if progress_callback is not None:
+            try:
+                progress_callback(success_chunks_inc, failed_chunks_inc, total_chunks)
             except Exception:
                 pass
 

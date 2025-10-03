@@ -20,17 +20,17 @@ Design
 from __future__ import annotations
 
 import re
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Callable
 
 from dotenv.main import logger
 from playwright.async_api import Browser, Locator, Page, async_playwright
-from permits_scraper.scrapers.playwright_scraper import PlaywrightBaseScraper
+from permits_scraper.scrapers.base.playwright_permit_details import PlaywrightPermitDetailsBaseScraper
 
 from permits_scraper.schemas.contacts import ApplicantData, OwnerData
 from permits_scraper.schemas.permit_record import PermitRecord
 
 
-class PermitDetailsScraper(PlaywrightBaseScraper):
+class PermitDetailsScraper(PlaywrightPermitDetailsBaseScraper):
     """Scraper for San Antonio (TX) Accela permit details.
 
     Parameters
@@ -70,7 +70,11 @@ class PermitDetailsScraper(PlaywrightBaseScraper):
     _city: str = "san_antonio"
     _base_url: str = "https://aca-prod.accela.com/COSA/Cap/CapHome.aspx?module=Building&TabName=Building"
 
-    async def scrape_async(self, permit_numbers: List[str]) -> Dict[str, PermitRecord]:
+    def scrape(self, permit_numbers: List[str], progress_callback: Optional[Callable[[int, int, int], None]] = None) -> Dict[str, PermitRecord]:
+        return super().scrape(permit_numbers, progress_callback)
+
+
+    async def scrape_async(self, permit_numbers: List[str], progress_callback: Optional[Callable[[int, int, int], None]] = None) -> Dict[str, PermitRecord]:
         """Asynchronously scrape permit details for a single application.
 
         Parameters
@@ -92,25 +96,34 @@ class PermitDetailsScraper(PlaywrightBaseScraper):
             try:
                 results: Dict[str, PermitRecord] = {}
                 for permit_number in permit_numbers:
-                    await self._goto_search_page(page)
-                    await self._submit_search(page, permit_number)
+                    try:
+                        success = False
+                        await self._goto_search_page(page)
+                        await self._submit_search(page, permit_number)
 
-                    # Wait until the page title appears
-                    await page.wait_for_selector('#ctl00_PlaceHolderMain_shPermitDetail_lblSectionTitle', state='visible')
+                        # Wait until the page title appears
+                        await page.wait_for_selector('#ctl00_PlaceHolderMain_shPermitDetail_lblSectionTitle', state='visible')
 
-                    applicant: Optional[ApplicantData] = await self._extract_applicant(page)
-                    owner: Optional[OwnerData] = await self._extract_owner(page)
+                        applicant: Optional[ApplicantData] = await self._extract_applicant(page)
+                        owner: Optional[OwnerData] = await self._extract_owner(page)
 
-                    result = PermitRecord(
-                        permit_number=permit_number,
-                        applicant=applicant,
-                        owner=owner)
+                        result = PermitRecord(
+                            permit_number=permit_number,
+                            applicant=applicant,
+                            owner=owner)
 
 
-                    # Persist per-permit result immediately as a crash-safe fallback
-                    self.persist_result(permit_number, result)
-
-                    results[permit_number] = result
+                        # Persist per-permit result immediately as a crash-safe fallback
+                        self.persist_result(permit_number, result)
+                        success = True
+                        results[permit_number] = result
+                    except Exception as e:
+                        success = False
+                        continue
+                    finally:
+                        success_chunk = 1 if success else 0
+                        failed_chunk = 1 if not success else 0
+                        self.process_progress_callback(progress_callback, success_chunk, failed_chunk, permit_numbers)
 
                 return results
             finally:

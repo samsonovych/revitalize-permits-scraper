@@ -20,13 +20,13 @@ Design
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Callable
 
 
 from permits_scraper.schemas.permit_record import PermitRecord
 from permits_scraper.schemas.contacts import ApplicantData
 from permits_scraper.schemas.contacts import OwnerData
-from permits_scraper.scrapers.playwright_scraper import PlaywrightBaseScraper
+from permits_scraper.scrapers.base.playwright_permit_details import PlaywrightPermitDetailsBaseScraper
 from playwright.async_api import (
     Browser,
     BrowserContext,
@@ -36,7 +36,7 @@ from playwright.async_api import (
     expect,
 )
 
-class PermitDetailsScraper(PlaywrightBaseScraper):
+class PermitDetailsScraper(PlaywrightPermitDetailsBaseScraper):
     """Scraper for Austin (TX) public search detail navigation.
 
     Methods
@@ -55,7 +55,18 @@ class PermitDetailsScraper(PlaywrightBaseScraper):
     _region: str = "tx"
     _city: str = "austin"
 
-    async def scrape_async(self, permit_numbers: List[str]) -> Dict[str, PermitRecord]:
+    def scrape(
+        self,
+        permit_numbers: List[str],
+        progress_callback: Optional[Callable[[int, int, int], None]] = None,
+    ) -> Dict[str, PermitRecord]:
+        return super().scrape(permit_numbers, progress_callback)
+
+    async def scrape_async(
+        self,
+        permit_numbers: List[str],
+        progress_callback: Optional[Callable[[int, int, int], None]] = None,
+    ) -> Dict[str, PermitRecord]:
         """Asynchronously open the detail page for each permit number and extract data."""
         async with async_playwright() as pw:
             browser: Browser = await pw.chromium.launch(headless=self._headless)
@@ -63,38 +74,52 @@ class PermitDetailsScraper(PlaywrightBaseScraper):
             await self._configure_network_blocking(context)
             page: Page = await context.new_page()
 
+            results: Dict[str, PermitRecord] = {}
+            total_chunks = len(permit_numbers)
+                
             try:
-                results: Dict[str, PermitRecord] = {}
                 for permit_number in permit_numbers:
-                    await self._goto_search_page(page)
-                    await self._submit_search(page, permit_number)
-                    details_opened = await self._open_first_detail_in_results(page)
+                    try:
+                        success = False
+                        await self._goto_search_page(page)
+                        await self._submit_search(page, permit_number)
+                        details_opened = await self._open_first_detail_in_results(page)
 
-                    if not details_opened:
+                        if not details_opened:
+                            success = False
+                            continue
+
+                        # Extract permit data from detail tabs
+                        application_date = await self._extract_application_date(page)
+                        issued_date = await self._extract_issued_date(page)
+                        building_address = await self._extract_property_details(page)
+                        people_details = await self._extract_people_details(page)
+
+
+                        result = PermitRecord(
+                            permit_number=permit_number,
+                            applicant=people_details["applicant"],
+                            owner=people_details["owner"],
+                            building_address=building_address,
+                            application_date=application_date,
+                            issued_date=issued_date
+                        )
+
+                        # Persist per-permit result immediately as a crash-safe fallback
+                        self.persist_result(permit_number, result)
+                        success = True
+
+                        results[permit_number] = result
+                    except Exception as e:
+                        success = False
                         continue
 
-                    # Extract permit data from detail tabs
-                    application_date = await self._extract_application_date(page)
-                    issued_date = await self._extract_issued_date(page)
-                    building_address = await self._extract_property_details(page)
-                    people_details = await self._extract_people_details(page)
+                    finally:
+                        success_chunk = 1 if success else 0
+                        failed_chunk = 1 if not success else 0
+                        self.process_progress_callback(progress_callback, success_chunk, failed_chunk, total_chunks)
 
-
-                    result = PermitRecord(
-                        permit_number=permit_number,
-                        applicant=people_details["applicant"],
-                        owner=people_details["owner"],
-                        building_address=building_address,
-                        application_date=application_date,
-                        issued_date=issued_date
-                    )
-
-                    # Persist per-permit result immediately as a crash-safe fallback
-                    self.persist_result(permit_number, result)
-
-                    results[permit_number] = result
-
-                return results
+                    return results
             finally:
                 await browser.close()
 
@@ -158,7 +183,6 @@ class PermitDetailsScraper(PlaywrightBaseScraper):
             
         except Exception as e:
             # Log error but don't fail the entire scrape
-            print(f"Error extracting application date: {e}")
             return None
 
 
@@ -193,7 +217,6 @@ class PermitDetailsScraper(PlaywrightBaseScraper):
             
         except Exception as e:
             # Log error but don't fail the entire scrape
-            print(f"Error extracting issued date: {e}")
             return None
 
     async def _extract_property_details(self, page: Page, timeout_ms: int = 20000) -> Optional[str]:
@@ -209,33 +232,40 @@ class PermitDetailsScraper(PlaywrightBaseScraper):
 
             # Wait for the <td> that contains the Address label
             address_td: Locator = page.locator('td').filter(has_text='Address:')
-            await expect(address_td).to_be_visible(timeout=timeout_ms)
 
-            if await address_td.count() > 1:
-                address_td = address_td.first()
+            count = await address_td.count()
+            if count == 0:
+                return None
 
-            # Get the visible text (Playwright renders <br> as a newline in inner_text)
-            full_text: str = await address_td.inner_text()
+            addresses: List[str] = []
+            for i in range(count):
+                td = address_td.nth(i)
+                full_text: str = await td.inner_text()
 
-            # Find "Address:" anchor
-            m = re.search(r'Address:\s*', full_text, flags=re.I)
-            if not m:
-                return
+                # Find "Address:" anchor
+                m = re.search(r'Address:\s*', full_text, flags=re.I)
+                if not m:
+                    continue
 
-            # Take everything until the first newline (i.e., <br>) or end of string
-            rest: str = full_text[m.end():]
-            first_line: str = rest.splitlines()[0] if rest else ""
-            addr: str = first_line.strip()
+                # Take everything until the first newline (i.e., <br>) or end of string
+                rest: str = full_text[m.end():]
+                first_line: str = rest.splitlines()[0] if rest else ""
+                addr: str = first_line.strip()
 
-            # Normalize whitespace/commas
-            addr: str = re.sub(r'\s+', ' ', addr).replace('\xa0', ' ')
-            addr: str = re.sub(r'\s*,\s*', ', ', addr).strip()
+                # Normalize whitespace/commas
+                addr = re.sub(r'\s+', ' ', addr).replace('\xa0', ' ')
+                addr = re.sub(r'\s*,\s*', ', ', addr).strip()
 
-            return addr or None
+                if addr:
+                    addresses.append(addr)
+
+            if not addresses:
+                return None
+
+            return " | ".join(addresses)
 
         except Exception as e:
             # Non-fatal
-            print(f"Error extracting property address: {e}")
             return None
 
     async def _extract_people_details(self, page: Page, timeout_ms: int = 20000) -> Dict[str, ApplicantData | OwnerData]:
@@ -315,7 +345,6 @@ class PermitDetailsScraper(PlaywrightBaseScraper):
             }
             
         except Exception as e:
-            print(f"Error extracting people details: {e}")
             return {
                 "applicant": ApplicantData(),
                 "owner": OwnerData()

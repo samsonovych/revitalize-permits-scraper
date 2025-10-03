@@ -61,4 +61,4 @@ requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
-app = "permits_scraper.run:main"
+app = "permits_scraper.ui.menu:main"

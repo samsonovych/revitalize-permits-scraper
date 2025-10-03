@@ -1,40 +1,14 @@
-"""Base class for all scrapers."""
+"""Base class for Playwright scrapers."""
 
-from permits_scraper.scrapers.base import PermitsBaseScraper
+from pydantic import BaseModel, PrivateAttr
 from playwright.async_api import BrowserContext, Route
-from typing import List, Dict
-from permits_scraper.schemas.permit_record import PermitRecord
-from pydantic import PrivateAttr
-import asyncio
+from abc import ABC
 
-class PlaywrightBaseScraper(PermitsBaseScraper):
-    """Base class for all scrapers."""
+class PlaywrightBaseScraper(ABC, BaseModel):
+    """Base class for Playwright scrapers."""
 
     _headless: bool = PrivateAttr(default=True)
     _base_url: str = PrivateAttr(...)
-
-    def scrape(self, permit_numbers: List[str]) -> Dict[str, PermitRecord]:  # type: ignore[override]
-        """Scrape permit details for a single permit number.
-
-        Parameters
-        ----------
-        permit_numbers : List[str]
-            The permit number to search for on the Accela portal.
-
-        Returns
-        -------
-        Dict[str, PermitRecord]
-            Parsed applicant and owner contact data.
-        """
-        try:
-            return asyncio.run(self.scrape_async(permit_numbers))
-        except RuntimeError as exc:
-            if "asyncio.run() cannot be called from a running event loop" in str(exc):
-                raise RuntimeError(
-                    "scrape() cannot be called from an active event loop; "
-                    "use `await scrape_async(permit_numbers)` instead."
-                ) from exc
-            raise
 
     @property
     def headless(self) -> bool:
