@@ -19,10 +19,10 @@ Design
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Optional, Dict, List, Callable
 
-from dotenv.main import logger
 from playwright.async_api import Browser, Locator, Page, async_playwright
 from permits_scraper.scrapers.base.playwright_permit_details import PlaywrightPermitDetailsBaseScraper
 
@@ -118,6 +118,7 @@ class PermitDetailsScraper(PlaywrightPermitDetailsBaseScraper):
                         success = True
                         results[permit_number] = result
                     except Exception as e:
+                        logging.exception("Error extracting permit details: %s:\n%s", permit_number, e)
                         success = False
                         continue
                     finally:
@@ -200,7 +201,7 @@ class PermitDetailsScraper(PlaywrightPermitDetailsBaseScraper):
 
             return data
         except Exception as e:
-            logger.error(f"Error extracting applicant: {e}")
+            logging.exception("Error extracting applicant: %s", e)
             return None
 
     async def _extract_owner(self, page: "Page") -> Optional[OwnerData]:
@@ -275,5 +276,5 @@ class PermitDetailsScraper(PlaywrightPermitDetailsBaseScraper):
 
             return data
         except Exception as e:
-            logger.error(f"Error extracting owner from page: {page.url}. Error: {e}")
+            logging.exception("Error extracting owner: %s", e)
             return None

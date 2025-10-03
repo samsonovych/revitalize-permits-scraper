@@ -33,6 +33,7 @@ from playwright.async_api import (
 # If using the same base as other Austin scrapers:
 from permits_scraper.scrapers.base.playwright_permit_list import PlaywrightPermitListBaseScraper
 from permits_scraper.schemas.permit_range_log import PermitRangeLog
+import logging
 
 
 class PermitListScraper(PlaywrightPermitListBaseScraper):
@@ -110,7 +111,13 @@ class PermitListScraper(PlaywrightPermitListBaseScraper):
 
                         success = True
                         outputs.append(result)
-                    except Exception:
+                    except Exception as e:
+                        logging.exception(
+                            "Austin list chunk failed: %s-%s:\n%s",
+                            chunk_start.isoformat(),
+                            chunk_end.isoformat(),
+                            e
+                        )
                         success = False
                         continue
                     finally:
@@ -119,6 +126,9 @@ class PermitListScraper(PlaywrightPermitListBaseScraper):
                         self.process_progress_callback(progress_callback, success_chunk, failed_chunk, total_chunks)
 
                 return outputs
+            except Exception as e:
+                logging.exception("Austin scrape_async fatal error: %s to %s:\n%s", start_date, end_date, e)
+                raise
             finally:
                 await browser.close()
 
@@ -126,7 +136,11 @@ class PermitListScraper(PlaywrightPermitListBaseScraper):
     # Navigation
     # ------------------------
     async def _goto_search_page(self, page: Page) -> None:
-        await page.goto(self._base_url, wait_until="domcontentloaded")
+        try:
+            await page.goto(self._base_url, wait_until="domcontentloaded")
+        except Exception as e:
+            logging.exception("Austin navigate failed: %s:\n%s", self._base_url, e)
+            raise
 
     async def _open_advanced_tab(self, page: Page, timeout_ms: int = 20000) -> None:
         """
@@ -138,8 +152,12 @@ class PermitListScraper(PlaywrightPermitListBaseScraper):
         # Prefer role-based, with tolerant name matching
         tab = page.locator('a[title="Property / Project Name / Types / Date Range"]')
 
-        await expect(tab).to_be_visible(timeout=timeout_ms)
-        await tab.click()
+        try:
+            await expect(tab).to_be_visible(timeout=timeout_ms)
+            await tab.click()
+        except Exception:
+            logging.exception("Austin advanced tab open failed")
+            raise
 
         # Wait for the Start/End Date inputs in the advanced panel
         await expect(
@@ -160,8 +178,12 @@ class PermitListScraper(PlaywrightPermitListBaseScraper):
 
         start_input = page.locator('input[title="Start Date"]').or_(page.locator("#inDateFromID"))
         end_input = page.locator('input[title="End Date"]').or_(page.locator("#inDateToID"))
-        await expect(start_input).to_be_visible(timeout=timeout_ms)
-        await expect(end_input).to_be_visible(timeout=timeout_ms)
+        try:
+            await expect(start_input).to_be_visible(timeout=timeout_ms)
+            await expect(end_input).to_be_visible(timeout=timeout_ms)
+        except Exception:
+            logging.exception("Austin date inputs not visible")
+            raise
 
         await start_input.fill("")
         await start_input.fill(start_str)
@@ -171,8 +193,12 @@ class PermitListScraper(PlaywrightPermitListBaseScraper):
         search_btn = page.get_by_role("button", name=re.compile(r"^Search$", re.I)).or_(
             page.locator('button[title="Search"]')
         )
-        await expect(search_btn).to_be_visible(timeout=timeout_ms)
-        await search_btn.click()
+        try:
+            await expect(search_btn).to_be_visible(timeout=timeout_ms)
+            await search_btn.click()
+        except Exception:
+            logging.exception("Austin Search click failed")
+            raise
 
     async def _get_total_results_count(self, page: Page, timeout_ms: int = 30000) -> Optional[int]:
         """
@@ -193,7 +219,8 @@ class PermitListScraper(PlaywrightPermitListBaseScraper):
             return
         try:
             return int(m.group(1).replace(",", ""))
-        except Exception:
+        except Exception as e:
+            logging.exception("Austin total count parse failed: %s:\n%s", raw, e)
             return
 
     async def _export_results(

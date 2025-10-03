@@ -9,7 +9,7 @@ import asyncio
 import json
 import os
 from uuid import uuid4
-from dotenv.main import logger
+import logging
 
 
 class PermitDetailsBaseScraper(ABC, BaseModel):
@@ -90,7 +90,7 @@ class PermitDetailsBaseScraper(ABC, BaseModel):
         except Exception as e:
             # Best-effort persistence; do not fail the scrape due to IO errors
             try:
-                logger.error(f"Failed to persist result for {permit_number}: {e}")
+                logging.exception("Failed to persist result for %s: %s", permit_number, e)
             except Exception:
                 pass
 

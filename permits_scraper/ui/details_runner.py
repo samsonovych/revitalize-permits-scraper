@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import List, Tuple
 import asyncio
+import logging
 
 from tqdm import tqdm
 
@@ -41,10 +42,24 @@ async def _details_worker(
         except Exception:
             pass
 
-    result_map = await scraper.scrape_async(
-        permits,
-        progress_callback=on_progress,  # type: ignore[arg-type]
-    )
+    try:
+        result_map = await scraper.scrape_async(
+            permits,
+            progress_callback=on_progress,  # type: ignore[arg-type]
+        )
+    except Exception:
+        logging.exception("PermitDetails worker failed: region=%s city=%s", region, city)
+        # Mark remaining as failed to avoid stuck bars
+        try:
+            remaining = max(0, (per_bar.total or 0) - (success_chunks_total + failed_chunks_total))
+            if remaining:
+                per_bar.update(remaining)
+                overall_bar.update(remaining)
+                failed_chunks_total += remaining
+                per_bar.set_postfix(success=success_chunks_total, failed=failed_chunks_total)
+        except Exception:
+            pass
+        result_map = {}
 
     total_permits = len(result_map)
     return success_chunks_total, failed_chunks_total, total_permits

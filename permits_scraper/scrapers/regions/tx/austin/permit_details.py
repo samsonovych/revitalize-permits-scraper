@@ -19,6 +19,7 @@ Design
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Dict, List, Optional, Callable
 
@@ -92,6 +93,7 @@ class PermitDetailsScraper(PlaywrightPermitDetailsBaseScraper):
                         # Extract permit data from detail tabs
                         application_date = await self._extract_application_date(page)
                         issued_date = await self._extract_issued_date(page)
+                        expiration_date = await self._extract_expiration_date(page)
                         building_address = await self._extract_property_details(page)
                         people_details = await self._extract_people_details(page)
 
@@ -102,7 +104,8 @@ class PermitDetailsScraper(PlaywrightPermitDetailsBaseScraper):
                             owner=people_details["owner"],
                             building_address=building_address,
                             application_date=application_date,
-                            issued_date=issued_date
+                            issued_date=issued_date,
+                            expiration_date=expiration_date
                         )
 
                         # Persist per-permit result immediately as a crash-safe fallback
@@ -111,6 +114,7 @@ class PermitDetailsScraper(PlaywrightPermitDetailsBaseScraper):
 
                         results[permit_number] = result
                     except Exception as e:
+                        logging.exception("Error extracting permit details: %s:\n%s", permit_number, e)
                         success = False
                         continue
 
@@ -119,14 +123,14 @@ class PermitDetailsScraper(PlaywrightPermitDetailsBaseScraper):
                         failed_chunk = 1 if not success else 0
                         self.process_progress_callback(progress_callback, success_chunk, failed_chunk, total_chunks)
 
-                    return results
+                return results
             finally:
                 await browser.close()
 
     async def _goto_search_page(self, page: Page) -> None:
         await page.goto(self._base_url, wait_until="domcontentloaded")
 
-    async def _submit_search(self, page: Page, permit_number: str, timeout_ms: int = 20000) -> None:
+    async def _submit_search(self, page: Page, permit_number: str, timeout_ms: int = 300_000) -> None:
         """Fill the search field and click Search."""
         field = page.locator("#searchTerm_ID").or_(page.locator('input[name="searchTerm"]'))
         await expect(field).to_be_visible(timeout=timeout_ms)
@@ -137,8 +141,9 @@ class PermitDetailsScraper(PlaywrightPermitDetailsBaseScraper):
         )
         await expect(search_btn).to_be_visible(timeout=timeout_ms)
         await search_btn.click()
+        await page.wait_for_load_state("networkidle", timeout=timeout_ms)
 
-    async def _open_first_detail_in_results(self, page: Page, timeout_ms: int = 60_000) -> bool:
+    async def _open_first_detail_in_results(self, page: Page, timeout_ms: int = 20000) -> bool:
         """Wait for results card, click the first available Detail button within it, and return the destination URL."""
         results_card = page.locator("div.datatable-row-center.datatable-row-group")
         await expect(results_card).to_be_visible(timeout=timeout_ms)
@@ -151,6 +156,7 @@ class PermitDetailsScraper(PlaywrightPermitDetailsBaseScraper):
 
         await expect(detail_btn).to_be_visible(timeout=timeout_ms)
         await detail_btn.click()
+        await page.wait_for_load_state("networkidle", timeout=timeout_ms)
         return True
 
     async def _extract_application_date(self, page: Page, timeout_ms: int = 20000) -> Optional[str]:
@@ -219,6 +225,40 @@ class PermitDetailsScraper(PlaywrightPermitDetailsBaseScraper):
             # Log error but don't fail the entire scrape
             return None
 
+
+    async def _extract_expiration_date(self, page: Page, timeout_ms: int = 20000) -> Optional[str]:
+        """
+        Step 1-2: Extract Expiration Date from the Folder Details tab.
+        The page should already be on the Folder Details tab (title="Folder Details").
+        Find the div with "Expiration Date" text and get the span value in the same row.
+        """
+        try:
+            # Wait for the Folder Details tab content to load
+            folder_details_tab = page.locator('a.nav-link[title="Folder Details"]')
+            await expect(folder_details_tab).to_be_visible(timeout=timeout_ms)
+            
+            # Ensure we're on the Folder Details tab (it should be active by default)
+            if not await folder_details_tab.locator('..').locator('li.active').count():
+                await folder_details_tab.click()
+                await page.wait_for_timeout(1000)  # Brief wait for content to load
+
+            # Find the form group containing "Expiration Date"
+            # Structure: div.col-md-6 > div.form-group > div.col-md-4[font-weight:bold] + span.col-md-8
+            expiration_date_row = page.locator('div.col-md-6:has(div.col-md-4:has-text("Expiration Date"))')
+            await expect(expiration_date_row).to_be_visible(timeout=timeout_ms)
+            
+            # Extract the date value from the span.col-md-8 in the same row
+            date_span = expiration_date_row.locator('span.col-md-8')
+            if await date_span.count() == 0:
+                return
+            
+            expiration_date = await date_span.inner_text()
+            return expiration_date.strip() if expiration_date else None
+            
+        except Exception as e:
+            # Log error but don't fail the entire scrape
+            return None
+
     async def _extract_property_details(self, page: Page, timeout_ms: int = 20000) -> Optional[str]:
         """
         Navigate to Property Details tab and extract the address using only the 'Address:' label
@@ -229,9 +269,12 @@ class PermitDetailsScraper(PlaywrightPermitDetailsBaseScraper):
             property_tab = page.locator('a.nav-link[title="Property Details"]')
             await expect(property_tab).to_be_visible(timeout=timeout_ms)
             await property_tab.click()
+            # Wait until <label> tag with inner text "Linked Address(s)" appears
+            linked_address_label = page.locator('label').filter(has_text="Linked Address(s)")
+            await expect(linked_address_label).to_be_visible(timeout=timeout_ms)
 
             # Wait for the <td> that contains the Address label
-            address_td: Locator = page.locator('td').filter(has_text='Address:')
+            address_td: Locator = page.locator('td').filter(has_text="Address:")
 
             count = await address_td.count()
             if count == 0:
@@ -240,6 +283,7 @@ class PermitDetailsScraper(PlaywrightPermitDetailsBaseScraper):
             addresses: List[str] = []
             for i in range(count):
                 td = address_td.nth(i)
+                await expect(td).to_be_visible(timeout=timeout_ms)
                 full_text: str = await td.inner_text()
 
                 # Find "Address:" anchor
@@ -265,6 +309,7 @@ class PermitDetailsScraper(PlaywrightPermitDetailsBaseScraper):
             return " | ".join(addresses)
 
         except Exception as e:
+            logging.exception("Error extracting property address: %s", e)
             # Non-fatal
             return None
 
@@ -281,6 +326,7 @@ class PermitDetailsScraper(PlaywrightPermitDetailsBaseScraper):
             )
             await expect(people_tab).to_be_visible(timeout=timeout_ms)
             await people_tab.click()
+            await page.wait_for_load_state("networkidle", timeout=timeout_ms)
             
             # Wait for the datatable to load
             datatable = page.locator("ngx-datatable .datatable-body")
@@ -345,6 +391,7 @@ class PermitDetailsScraper(PlaywrightPermitDetailsBaseScraper):
             }
             
         except Exception as e:
+            logging.exception("Error extracting people details: %s", e)
             return {
                 "applicant": ApplicantData(),
                 "owner": OwnerData()

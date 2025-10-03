@@ -8,7 +8,7 @@ from pydantic import BaseModel, PrivateAttr
 import json
 import os
 from uuid import uuid4
-from dotenv.main import logger
+import logging
 import asyncio
 
 
@@ -98,7 +98,7 @@ class PermitListBaseScraper(ABC, BaseModel):
         except Exception as e:
             # Best-effort persistence; do not fail the scrape due to IO errors
             try:
-                logger.error(f"Failed to persist result for {start_date}_{end_date}: {e}")
+                logging.exception("Failed to persist result for %s: %s", start_date, end_date, e)
             except Exception:
                 pass
 

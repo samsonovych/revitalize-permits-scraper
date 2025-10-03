@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, Tuple, Optional
 from datetime import date
+import logging
 import asyncio
 
 from tqdm import tqdm
@@ -62,12 +63,32 @@ async def _list_worker(
         except Exception:
             pass
 
-    results = await scraper.scrape_async(
-        start_s,
-        end_s,
-        progress_callback=on_progress,  # type: ignore[arg-type]
-        **extra_kwargs,
-    )
+    try:
+        results = await scraper.scrape_async(
+            start_s,
+            end_s,
+            progress_callback=on_progress,  # type: ignore[arg-type]
+            **extra_kwargs,
+        )
+    except Exception:
+        logging.exception(
+            "PermitList list worker failed: region=%s city=%s range=%s-%s",
+            region,
+            city,
+            start_s,
+            end_s,
+        )
+        # Best-effort: mark remaining as failed to avoid stuck bars
+        try:
+            remaining = max(0, (per_bar.total or 0) - (success_chunks_total + failed_chunks_total))
+            if remaining:
+                per_bar.update(remaining)
+                overall_bar.update(remaining)
+                failed_chunks_total += remaining
+                per_bar.set_postfix(success=success_chunks_total, failed=failed_chunks_total)
+        except Exception:
+            pass
+        return success_chunks_total, failed_chunks_total, 0
 
     total_permits = sum(getattr(r, "number_of_permits", 0) for r in results) if isinstance(results, list) else 0
     return success_chunks_total, failed_chunks_total, total_permits
