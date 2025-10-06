@@ -76,7 +76,6 @@ class PermitDetailsScraper(PlaywrightPermitDetailsBaseScraper):
             page: Page = await context.new_page()
 
             results: Dict[str, PermitRecord] = {}
-            total_chunks = len(permit_numbers)
                 
             try:
                 for permit_number in permit_numbers:
@@ -121,7 +120,7 @@ class PermitDetailsScraper(PlaywrightPermitDetailsBaseScraper):
                     finally:
                         success_chunk = 1 if success else 0
                         failed_chunk = 1 if not success else 0
-                        self.process_progress_callback(progress_callback, success_chunk, failed_chunk, total_chunks)
+                        self.process_progress_callback(progress_callback, success_chunk, failed_chunk, len(permit_numbers))
 
                 return results
             finally:

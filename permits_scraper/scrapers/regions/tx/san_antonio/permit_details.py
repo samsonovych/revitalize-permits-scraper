@@ -124,7 +124,7 @@ class PermitDetailsScraper(PlaywrightPermitDetailsBaseScraper):
                     finally:
                         success_chunk = 1 if success else 0
                         failed_chunk = 1 if not success else 0
-                        self.process_progress_callback(progress_callback, success_chunk, failed_chunk, permit_numbers)
+                        self.process_progress_callback(progress_callback, success_chunk, failed_chunk, len(permit_numbers))
 
                 return results
             finally:

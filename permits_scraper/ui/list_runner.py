@@ -10,11 +10,10 @@ import asyncio
 
 from tqdm import tqdm
 
+from permits_scraper.scrapers.base.playwright import PlaywrightBaseScraper
 from permits_scraper.ui.registry import select_scraper
 from permits_scraper.ui.utils import (
-    format_ddmmyyyy,
     iter_range_by_parts,
-    compute_chunk_count,
     parse_date_flexible,
     GREEN,
     RED,
@@ -25,6 +24,8 @@ from permits_scraper.scrapers.base.permit_list import PermitListBaseScraper
 
 
 def calc_days_between(start_d: date, end_d: date, days_per_step: int) -> int:
+    if days_per_step == -1:
+        return 1
     return math.ceil(((end_d - start_d).days + 1) / days_per_step)
 
 
@@ -37,13 +38,11 @@ async def _list_worker(
     per_bar: tqdm,
     overall_bar: tqdm,
 ) -> Tuple[int, int, int]:
-    if not chunk_group:
-        return 0, 0, 0
-    sub_start, sub_end = chunk_group
-    start_s = format_ddmmyyyy(sub_start)
-    end_s = format_ddmmyyyy(sub_end)
+
+    start_s, end_s = chunk_group
+
     scraper: PermitListBaseScraper = select_scraper(region, city, type="list")  # type: ignore[assignment]
-    if hasattr(scraper, "set_headless") and headless_raw in {"n", "no", "false", "0"}:
+    if hasattr(scraper, "set_headless") and isinstance(scraper, PlaywrightBaseScraper) and headless_raw in {"n", "no", "false", "0"}:
         try:
             scraper.set_headless(False)  # type: ignore[attr-defined]
         except Exception:
@@ -51,15 +50,25 @@ async def _list_worker(
 
     success_chunks_total = 0
     failed_chunks_total = 0
+    announced_total = False
 
-    def on_progress(success_chunks_inc: int, failed_chunks_inc: int, total_chunks: int) -> None:
+    def on_progress(success_chunks_inc: int, failed_chunks_inc: int, total_chunks: Optional[int] = None) -> None:
         nonlocal success_chunks_total, failed_chunks_total
+        nonlocal announced_total
         try:
             success_chunks_total += success_chunks_inc
             failed_chunks_total += failed_chunks_inc
             overall_bar.update(success_chunks_inc+failed_chunks_inc)
             per_bar.update(success_chunks_inc+failed_chunks_inc)
             per_bar.set_postfix(success=success_chunks_total, failed=failed_chunks_total)
+            if total_chunks is not None and not announced_total:
+                # Initialize totals lazily on first announcement from scraper
+                per_bar.total = total_chunks
+                # Bump overall total once per worker
+                overall_total = overall_bar.total or 0
+                overall_bar.total = overall_total + total_chunks
+                overall_bar.refresh()
+                announced_total = True
         except Exception:
             pass
 
@@ -100,13 +109,13 @@ def run_list(
     start_date: str,
     end_date: str,
     instances: int,
-    days_per_step: Optional[int] = -1,
+    days_per_step: int = -1,
     headless_raw: str = "",
     extra_kwargs: Optional[Dict[str, Any]] = None,
 ) -> None:
     extra = extra_kwargs or {}
     # Ensure scraper receives the same days_per_step used to build UI chunks
-    if days_per_step is not None:
+    if days_per_step != -1:
         extra.setdefault("days_per_step", days_per_step)
     try:
         start_d = parse_date_flexible(start_date)
@@ -121,11 +130,10 @@ def run_list(
     actual_instances = min(max(1, instances), calc_days_between(start_d, end_d, days_per_step))
     all_chunks = iter_range_by_parts(start_d, end_d, actual_instances)
 
-    # Overall total should be the number of chunks across the whole range
-    overall_total = compute_chunk_count(start_d, end_d, days_per_step)
-    overall_bar = tqdm(total=overall_total, position=0, desc="Overall", leave=True)
+    # Initialize bars with unknown totals; each worker will announce its total via the progress callback
+    overall_bar = tqdm(total=0, position=0, desc="Overall", leave=True)
     per_bars = [
-        tqdm(total=compute_chunk_count(all_chunks[i][0], all_chunks[i][1], days_per_step), position=i + 1, desc=f"Instance {i + 1}", leave=True)
+        tqdm(total=0, position=i + 1, desc=f"Instance {i + 1}", leave=True)
         for i in range(len(all_chunks))
     ]
 

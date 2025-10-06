@@ -5,9 +5,11 @@ from __future__ import annotations
 import logging
 import math
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Type
 from datetime import datetime, date, timedelta
 import pandas as pd
+from pydantic import BaseModel
+from pydantic_core import PydanticUndefined
 
 
 GREEN = "\033[92m"
@@ -154,4 +156,43 @@ def read_permit_numbers(csv_path: Path, column: str) -> List[str]:
     seen: Dict[str, None] = {}
     return [x for x in series.tolist() if not (x in seen or seen.setdefault(x, None))]
 
+
+
+def prompt_for_model(model: Type[BaseModel]) -> BaseModel:
+    """Prompt user for fields of a Pydantic model and return an instance.
+
+    Parameters
+    ----------
+    model : Type[BaseModel]
+        The Pydantic model class describing the required inputs.
+
+    Returns
+    -------
+    BaseModel
+        An instance populated from user input.
+    """
+    values: Dict[str, Any] = {}
+    for name, field in model.model_fields.items():
+        desc = field.description or name
+        has_default = field.default is not PydanticUndefined
+        default_repr = f" [{field.default}]" if has_default else ""
+        raw = input(f"{desc}{default_repr}: ").strip()
+        if raw == "" and has_default:
+            values[name] = field.default
+            continue
+        anno = field.annotation
+        try:
+            if anno is bool:
+                values[name] = raw.lower() in {"y", "yes", "true", "1"}
+            elif anno is int:
+                values[name] = int(raw)
+            elif anno is float:
+                values[name] = float(raw)
+            elif anno is date:
+                values[name] = parse_date_flexible(raw)
+            else:
+                values[name] = raw
+        except Exception:
+            values[name] = raw
+    return model(**values)
 

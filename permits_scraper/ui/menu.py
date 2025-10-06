@@ -9,9 +9,10 @@ import json
 import pandas as pd
 
 from permits_scraper.ui.registry import select_scraper
-from permits_scraper.ui.utils import GREEN, RED, YELLOW, CYAN, BOLD, RESET, setup_file_logging, read_permit_numbers
+from permits_scraper.ui.utils import GREEN, RED, YELLOW, CYAN, BOLD, RESET, setup_file_logging, read_permit_numbers, prompt_for_model
 from permits_scraper.ui.details_runner import run_details
 from permits_scraper.ui.list_runner import run_list
+from permits_scraper.scrapers.base.permit_list import PermitListBaseScraper
 
 
 def print_banner() -> None:
@@ -82,35 +83,42 @@ def main() -> None:
             region = input("Enter region/state code (e.g., tx): ").strip()
             city = input("Enter city (e.g., austin): ").strip()
             try:
-                _ = select_scraper(region, city, type="list")
+                scraper: PermitListBaseScraper = select_scraper(region, city, type="list")
             except ValueError as e:
                 print(f"{RED}{e}{RESET}")
                 continue
-            start_date = input("Enter start date (DD/MM/YYYY): ").strip()
-            end_date = input("Enter end date (DD/MM/YYYY): ").strip()
-            dps_raw = input("Optional days_per_step (press Enter to skip): ").strip()
-            headless_raw = input("Run headless? [Y/n] (default Y): ").strip().lower()
-            inst_raw = input("How many instances? (default 1): ").strip()
-            try:
-                instances = int(inst_raw) if inst_raw else 1
-            except ValueError:
-                instances = 1
-            days_per_step = None
-            if dps_raw:
-                try:
-                    days_per_step = int(dps_raw)
-                except ValueError:
-                    days_per_step = -1
+            # Scraper-driven inputs
+            schema = scraper.__class__.get_input_schema()  # type: ignore[attr-defined]
+            inputs = prompt_for_model(schema)
+            # Extract known fields and route through list runner to keep multi-instance support
+            start_v = getattr(inputs, "start_date", "")
+            end_v = getattr(inputs, "end_date", "")
+            start_s = start_v.strftime('%Y-%m-%d') if hasattr(start_v, 'strftime') else str(start_v)
+            end_s = end_v.strftime('%Y-%m-%d') if hasattr(end_v, 'strftime') else str(end_v)
+            instances = getattr(inputs, "instances", 1)
+            days_per_step = getattr(inputs, "days_per_step", -1)
+            headless_raw_val = getattr(inputs, "headless_raw", None)
+            if headless_raw_val is None:
+                hb = getattr(inputs, "headless", None)
+                if hb is not None:
+                    headless_raw_val = 'n' if (hb is False) else 'y'
+            headless_raw = str(headless_raw_val or "").lower()
+            payload = inputs.model_dump()
+            extras = {k: v for k, v in payload.items() if k not in {"start_date", "end_date", "instances", "days_per_step", "headless_raw", "headless"}}
             print(f"\n{BOLD}Running list scraper...{RESET}")
-            run_list(
-                region=region,
-                city=city,
-                start_date=start_date,
-                end_date=end_date,
-                instances=instances,
-                days_per_step=days_per_step if days_per_step is not None else -1,
-                headless_raw=headless_raw,
-            )
+            try:
+                run_list(
+                    region=region,
+                    city=city,
+                    start_date=start_s,
+                    end_date=end_s,
+                    instances=instances,
+                    days_per_step=days_per_step,
+                    headless_raw=headless_raw,
+                    extra_kwargs=extras if extras else None,
+                )
+            except Exception as e:
+                print(f"{RED}Scrape failed: {e}{RESET}")
             input(f"\n{BOLD}Press Enter to return to menu...{RESET}")
             continue
 

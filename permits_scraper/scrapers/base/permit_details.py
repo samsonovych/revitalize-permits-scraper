@@ -94,7 +94,7 @@ class PermitDetailsBaseScraper(ABC, BaseModel):
             except Exception:
                 pass
 
-    def process_progress_callback(self, progress_callback: Optional[Callable[[int, int, int], None]], success_chunks_inc: int, failed_chunks_inc: int, total_chunks: int) -> None:
+    def process_progress_callback(self, progress_callback: Optional[Callable[[int, int, Optional[int]], None]], success_chunks_inc: int, failed_chunks_inc: int, total_chunks: Optional[int] = None) -> None:
         if progress_callback is not None:
             try:
                 progress_callback(success_chunks_inc, failed_chunks_inc, total_chunks)

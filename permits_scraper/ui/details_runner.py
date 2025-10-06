@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 import asyncio
 import logging
 
@@ -30,15 +30,23 @@ async def _details_worker(
 
     success_chunks_total = 0
     failed_chunks_total = 0
+    announced_total = False
 
-    def on_progress(success_chunks_inc: int, failed_chunks_inc: int, total_chunks: int) -> None:
+    def on_progress(success_chunks_inc: int, failed_chunks_inc: int, total_chunks: Optional[int] = None) -> None:
         nonlocal success_chunks_total, failed_chunks_total
+        nonlocal announced_total
         try:
             success_chunks_total += success_chunks_inc
             failed_chunks_total += failed_chunks_inc
             overall_bar.update(success_chunks_inc+failed_chunks_inc)
             per_bar.update(success_chunks_inc+failed_chunks_inc)
             per_bar.set_postfix(success=success_chunks_total, failed=failed_chunks_total)
+            if total_chunks is not None and not announced_total:
+                per_bar.total = total_chunks
+                overall_total = overall_bar.total or 0
+                overall_bar.total = overall_total + total_chunks
+                overall_bar.refresh()
+                announced_total = True
         except Exception:
             pass
 
@@ -75,11 +83,11 @@ def run_details(
     instances = max(1, min(instances, len(permits)))
     chunks = chunk_evenly(permits, instances)
 
-    overall_total = len(permits)
-    overall_bar = tqdm(total=overall_total, position=0, desc="Overall", leave=True)
+    # Initialize bars with unknown totals; workers will announce totals via progress callback
+    overall_bar = tqdm(total=0, position=0, desc="Overall", leave=True)
     per_bars = [
-        tqdm(total=len(ch), position=i + 1, desc=f"Instance {i + 1}", leave=True)
-        for i, ch in enumerate(chunks)
+        tqdm(total=0, position=i + 1, desc=f"Instance {i + 1}", leave=True)
+        for i, _ in enumerate(chunks)
     ]
 
     async def runner() -> Tuple[int, int, int]:
