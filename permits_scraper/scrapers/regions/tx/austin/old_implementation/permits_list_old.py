@@ -63,7 +63,7 @@ class PermitListScraper(PlaywrightPermitListBaseScraper):
         start_date: date,
         end_date: date,
         days_per_step: int = -1,
-        progress_callback: Optional[Callable[[int, int, int], None]] = None,
+        progress_callback: Optional[Callable[[int, int, Optional[int]], None]] = None,
     ) -> List[PermitRangeLog]:
         """Sync wrapper to call the async method."""
         return super().scrape(start_date, end_date, days_per_step, progress_callback)
@@ -73,7 +73,7 @@ class PermitListScraper(PlaywrightPermitListBaseScraper):
         start_date: date,
         end_date: date,
         days_per_step: int = -1,
-        progress_callback: Optional[Callable[[int, int, int], None]] = None,
+        progress_callback: Optional[Callable[[int, int, Optional[int]], None]] = None,
     ) -> List[PermitRangeLog]:
         """Execute advanced-date-range searches in chunks and return basic metadata per chunk."""
         async with async_playwright() as pw:
@@ -260,25 +260,3 @@ class PermitListScraper(PlaywrightPermitListBaseScraper):
                 return out_dir / suggested
             except Exception:
                 return None
-
-    # ------------------------
-    # Utilities
-    # ------------------------
-    def _iter_chunks(self, start: date, end: date, days_per_step: int) -> List[Tuple[date, date]]:
-        if start > end:
-            raise ValueError("start_date must be on or before end_date")
-
-        if days_per_step is None or days_per_step == -1:
-            return [(start, end)]
-
-        # With days_per_step=N, include N days after the start in the first inclusive chunk, then continue after that end.
-        step = timedelta(days=days_per_step)
-        chunks: List[Tuple[date, date]] = []
-        cur = start
-        while cur <= end:
-            cur_end = cur + step
-            if cur_end > end:
-                cur_end = end
-            chunks.append((cur, cur_end))
-            cur = cur_end + timedelta(days=1)
-        return chunks

@@ -2,9 +2,9 @@
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, List, Optional, Callable
+from typing import Dict, List, Optional, Callable, Type
 from permits_scraper.schemas.permit_record import PermitRecord
-from pydantic import BaseModel, PrivateAttr
+from pydantic import BaseModel, PrivateAttr, Field
 import asyncio
 import json
 import os
@@ -40,6 +40,59 @@ class PermitDetailsBaseScraper(ABC, BaseModel):
     async def scrape_async(self, permit_numbers: List[str], *args, **kwargs) -> Dict[str, PermitRecord]:
         """Scrape the data from the URL (Asynchronously)."""
         pass
+
+    # ------------------------
+    # Input schema and adapter
+    # ------------------------
+    class DefaultInputs(BaseModel):
+        """Default inputs for details scrapers.
+
+        Parameters
+        ----------
+        permits_csv_path : Path
+            Path to CSV containing permit IDs to scrape.
+        permits_column : str, default="Permit Number"
+            Column name in CSV that contains permit IDs.
+        headless : bool, default=True
+            Run browser in headless mode.
+        instances : int, default=1
+            Parallel instances if supported.
+        """
+
+        permits_csv_path: Path = Field(description="Path to CSV with permit IDs to scrape")
+        permits_column: str = Field(default="Permit Number", description="CSV column containing permit IDs")
+        headless: bool = Field(default=True, description="Do you want to run headless?")
+        instances: int = Field(default=1, description="How many instances to run in parallel")
+
+    @classmethod
+    def get_input_schema(cls) -> Type[BaseModel]:
+        """Return the Pydantic model describing CLI inputs for this details scraper.
+
+        Returns
+        -------
+        Type[pydantic.BaseModel]
+            A model class used to prompt for inputs. Override in scrapers to customize.
+        """
+        return PermitDetailsBaseScraper.DefaultInputs
+
+    def scrape_with_inputs(self, permit_numbers: List[str], inputs: BaseModel) -> Dict[str, PermitRecord]:
+        """Run the scraper using a validated inputs object.
+
+        Parameters
+        ----------
+        permit_numbers : List[str]
+            Permit/application identifiers to open and extract.
+        inputs : BaseModel
+            Instance of the model returned by ``get_input_schema``.
+
+        Returns
+        -------
+        Dict[str, PermitRecord]
+            Scrape results, keyed by permit number.
+        """
+        payload = inputs.model_dump()
+        other = payload
+        return self.scrape(permit_numbers, **other)
 
     def _result_output_dir(self) -> Path:
         """Return the output directory for per-permit results.
@@ -95,9 +148,14 @@ class PermitDetailsBaseScraper(ABC, BaseModel):
                 pass
 
     def process_progress_callback(self, progress_callback: Optional[Callable[[int, int, Optional[int]], None]], success_chunks_inc: int, failed_chunks_inc: int, total_chunks: Optional[int] = None) -> None:
+        """Process the progress callback."""
         if progress_callback is not None:
             try:
                 progress_callback(success_chunks_inc, failed_chunks_inc, total_chunks)
             except Exception:
                 pass
 
+    class Config:
+        """Config for the permit details scraper."""
+
+        arbitrary_types_allowed = True

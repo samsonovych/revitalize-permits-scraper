@@ -42,9 +42,14 @@ class ProcessorRegistry:
             for city_dir in state_dir.iterdir():
                 if not city_dir.is_dir():
                     continue
+                # Support both legacy name and alternative filename
                 module_path = city_dir / "post_processor.py"
                 if not module_path.exists():
-                    continue
+                    alt = city_dir / "processor.py"
+                    if alt.exists():
+                        module_path = alt
+                    else:
+                        continue
                 key = ProcessorKey(state=state_dir.name, city=city_dir.name)
                 try:
                     module = self._import_module_from_path(module_path)

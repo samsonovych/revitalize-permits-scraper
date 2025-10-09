@@ -1,9 +1,9 @@
 """Base class for all scrapers."""
 
 from abc import ABC, abstractmethod
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
-from typing import List, Optional, Callable, Type
+from typing import List, Optional, Callable, Type, Tuple
 from permits_scraper.schemas.permit_range_log import PermitRangeLog
 from pydantic import BaseModel, PrivateAttr, Field
 import json
@@ -165,3 +165,28 @@ class PermitListBaseScraper(ABC, BaseModel):
                 progress_callback(success_chunks_inc, failed_chunks_inc, total_chunks)
             except Exception:
                 pass
+
+    # ------------------------
+    # Utilities
+    # ------------------------
+    def _iter_chunks(self, start: date, end: date, days_per_step: int) -> List[Tuple[date, date]]:
+        if start > end:
+            raise ValueError("start_date must be on or before end_date")
+
+        if days_per_step is None or days_per_step == -1:
+            return [(start, end)]
+
+        # With days_per_step=N, include N days after the start in the first inclusive chunk, then continue after that end.
+        step = timedelta(days=days_per_step)
+        chunks: List[Tuple[date, date]] = []
+        cur = start
+        while cur <= end:
+            cur_end = cur + step
+            if cur_end > end:
+                cur_end = end
+            chunks.append((cur, cur_end))
+            cur = cur_end + timedelta(days=1)
+        return chunks
+
+    class Config:
+        arbitrary_types_allowed = True

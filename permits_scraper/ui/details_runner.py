@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Any
 import asyncio
 import logging
 
@@ -16,13 +16,14 @@ from permits_scraper.scrapers.base.permit_details import PermitDetailsBaseScrape
 async def _details_worker(
     region: str,
     city: str,
-    headless_raw: str,
+    headless: bool,
     permits: List[str],
+    extra_kwargs: Optional[Dict[str, Any]],
     per_bar: tqdm,
     overall_bar: tqdm,
 ) -> Tuple[int, int, int]:
     scraper: PermitDetailsBaseScraper = select_scraper(region, city, type="details")  # type: ignore[assignment]
-    if hasattr(scraper, "set_headless") and headless_raw in {"n", "no", "false", "0"}:
+    if hasattr(scraper, "set_headless") and headless == False:
         try:
             scraper.set_headless(False)  # type: ignore[attr-defined]
         except Exception:
@@ -51,9 +52,11 @@ async def _details_worker(
             pass
 
     try:
+        kwargs = dict(extra_kwargs or {})
         result_map = await scraper.scrape_async(
             permits,
             progress_callback=on_progress,  # type: ignore[arg-type]
+            **kwargs,
         )
     except Exception:
         logging.exception("PermitDetails worker failed: region=%s city=%s", region, city)
@@ -78,7 +81,8 @@ def run_details(
     city: str,
     permits: List[str],
     instances: int,
-    headless_raw: str = "",
+    headless: bool,
+    extra_kwargs: Optional[Dict[str, Any]] = None,
 ) -> None:
     instances = max(1, min(instances, len(permits)))
     chunks = chunk_evenly(permits, instances)
@@ -92,7 +96,7 @@ def run_details(
 
     async def runner() -> Tuple[int, int, int]:
         tasks = [
-            _details_worker(region, city, headless_raw, chunks[i], per_bars[i], overall_bar)
+            _details_worker(region, city, headless, chunks[i], extra_kwargs, per_bars[i], overall_bar)
             for i in range(len(chunks))
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)

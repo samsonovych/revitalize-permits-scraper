@@ -126,7 +126,7 @@ def run_list(
     if start_d > end_d:
         print("start_date must be on or before end_date")
         return
-
+ 
     actual_instances = min(max(1, instances), calc_days_between(start_d, end_d, days_per_step))
     all_chunks = iter_range_by_parts(start_d, end_d, actual_instances)
 

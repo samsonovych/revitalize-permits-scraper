@@ -175,7 +175,7 @@ def prompt_for_model(model: Type[BaseModel]) -> BaseModel:
     for name, field in model.model_fields.items():
         desc = field.description or name
         has_default = field.default is not PydanticUndefined
-        default_repr = f" [{field.default}]" if has_default else ""
+        default_repr = f" (default: {field.default})" if has_default else ""
         raw = input(f"{desc}{default_repr}: ").strip()
         if raw == "" and has_default:
             values[name] = field.default
@@ -183,13 +183,19 @@ def prompt_for_model(model: Type[BaseModel]) -> BaseModel:
         anno = field.annotation
         try:
             if anno is bool:
-                values[name] = raw.lower() in {"y", "yes", "true", "1"}
+                # Always prompt for boolean; accept y/n/true/false/1/0, default when blank
+                if raw == "" and has_default:
+                    values[name] = bool(field.default)
+                else:
+                    values[name] = raw.lower() in {"y", "yes", "true", "1"}
             elif anno is int:
                 values[name] = int(raw)
             elif anno is float:
                 values[name] = float(raw)
             elif anno is date:
                 values[name] = parse_date_flexible(raw)
+            elif anno is Path:
+                values[name] = Path(raw).expanduser().resolve()
             else:
                 values[name] = raw
         except Exception:

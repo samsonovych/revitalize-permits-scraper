@@ -59,14 +59,14 @@ class PermitDetailsScraper(PlaywrightPermitDetailsBaseScraper):
     def scrape(
         self,
         permit_numbers: List[str],
-        progress_callback: Optional[Callable[[int, int, int], None]] = None,
+        progress_callback: Optional[Callable[[int, int, Optional[int]], None]] = None,
     ) -> Dict[str, PermitRecord]:
         return super().scrape(permit_numbers, progress_callback)
 
     async def scrape_async(
         self,
         permit_numbers: List[str],
-        progress_callback: Optional[Callable[[int, int, int], None]] = None,
+        progress_callback: Optional[Callable[[int, int, Optional[int]], None]] = None,
     ) -> Dict[str, PermitRecord]:
         """Asynchronously open the detail page for each permit number and extract data."""
         async with async_playwright() as pw:

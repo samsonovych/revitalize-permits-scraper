@@ -13,6 +13,7 @@ from permits_scraper.ui.utils import GREEN, RED, YELLOW, CYAN, BOLD, RESET, setu
 from permits_scraper.ui.details_runner import run_details
 from permits_scraper.ui.list_runner import run_list
 from permits_scraper.scrapers.base.permit_list import PermitListBaseScraper
+from permits_scraper.scrapers.base.permit_details import PermitDetailsBaseScraper
 
 
 def print_banner() -> None:
@@ -126,26 +127,58 @@ def main() -> None:
             region = input("Enter region/state code (e.g., tx): ").strip()
             city = input("Enter city (e.g., san_antonio): ").strip()
             try:
-                _ = select_scraper(region, city, type="details")
+                scraper: PermitDetailsBaseScraper = select_scraper(region, city, type="details")  # type: ignore[assignment]
             except ValueError as e:
                 print(f"{RED}{e}{RESET}")
                 continue
-            csv_path_str = input("Enter full path to the CSV with permits: ").strip()
-            column = input("Enter column name that contains permit IDs: ").strip()
-            inst_raw = input("How many instances? (default 1): ").strip()
-            headless_raw = input("Run headless? [Y/n] (default Y): ").strip().lower()
-            from pathlib import Path as _P
-            csv_path = _P(csv_path_str).expanduser().resolve()
+
+            # Scraper-driven inputs
+            schema = scraper.__class__.get_input_schema()  # type: ignore[attr-defined]
+            inputs = prompt_for_model(schema)
+
+            payload = inputs.model_dump()
+
+            # permits source
+            permits = []
             try:
-                permits = read_permit_numbers(csv_path, column)
+                if "permits" in payload and isinstance(payload.get("permits"), list):
+                    permits = [str(p) for p in payload.get("permits") or []]
+                else:
+                    from pathlib import Path as _P
+                    csv_path_val = payload.get("permits_csv_path")
+                    col_name = payload.get("permits_column") or "Permit Number"
+                    if csv_path_val is None:
+                        raise ValueError("permits_csv_path is required in inputs to read permit IDs")
+                    csv_path = _P(str(csv_path_val)).expanduser().resolve()
+                    permits = read_permit_numbers(csv_path, str(col_name))
             except Exception as e:
                 print(f"{RED}{e}{RESET}")
                 continue
+
+            instances = int(payload.get("instances") or 1)
+            headless_raw_val = payload.get("headless_raw")
+            if headless_raw_val is None:
+                hb = payload.get("headless")
+                if hb is not None:
+                    headless_raw_val = False if (hb is False) else True
+            headless = bool(headless_raw_val)
+
+            # extras for scraper.scrape_async
+            exclude_keys = {"permits", "permits_csv_path", "permits_column", "instances", "headless_raw", "headless"}
+            extras = {k: v for k, v in payload.items() if k not in exclude_keys}
+
+            print(f"\n{BOLD}Running details scraper...{RESET}")
             try:
-                instances = int(inst_raw) if inst_raw else 1
-            except ValueError:
-                instances = 1
-            run_details(region=region, city=city, permits=permits, instances=instances, headless_raw=headless_raw)
+                run_details(
+                    region=region,
+                    city=city,
+                    permits=permits,
+                    instances=instances,
+                    headless=headless,
+                    extra_kwargs=extras if extras else None,
+                )
+            except Exception as e:
+                print(f"{RED}Scrape failed: {e}{RESET}")
             input(f"\n{BOLD}Press Enter to return to menu...{RESET}")
             continue
 
