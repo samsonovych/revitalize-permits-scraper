@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class SubContractor(BaseModel):
@@ -61,7 +61,4 @@ class SubContractor(BaseModel):
     effective_to: Optional[str] = None
     inspection_notifications: Optional[str] = None
 
-    class Config:
-        extra = "allow"
-
-
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")

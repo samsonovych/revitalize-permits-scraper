@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class AssociatedPerson(BaseModel):
@@ -50,7 +50,4 @@ class AssociatedPerson(BaseModel):
     email: Optional[str] = None
     phone_number: Optional[str] = None
 
-    class Config:
-        extra = "allow"
-
-
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")

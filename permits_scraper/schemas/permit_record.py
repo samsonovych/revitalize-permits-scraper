@@ -6,12 +6,8 @@ commonly found in permit details, including applicant and owner data.
 The models are intentionally simple and reusable across regions.
 """
 
-from typing import Optional
 
-from pydantic import BaseModel, Field
-
-from permits_scraper.schemas.contacts import ApplicantData
-from permits_scraper.schemas.contacts import OwnerData
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class PermitRecord(BaseModel):
@@ -21,24 +17,15 @@ class PermitRecord(BaseModel):
     ----------
     permit_number : str
         Permit number.
-    description : Optional[str], default=None
-        Permit description.
-    applicant : ApplicantData
-        Applicant data.
-    owner : OwnerData
-        Owner data.
     ... : Any, default=None
         Additional permit record data.
 
     Examples
     --------
-    >>> PermitRecord(permit_number="1234567890", description="Permit description", applicant=ApplicantData(first_name="Jane", last_name="Doe"), owner=OwnerData(first_name="John", last_name="Smith"))
-    PermitRecord(permit_number='1234567890', description='Permit description', applicant=ApplicantData(first_name='Jane', last_name='Doe'), owner=OwnerData(first_name='John', last_name='Smith'))
+    >>> PermitRecord(permit_number="1234567890")
+    PermitRecord(permit_number='1234567890')
     """
 
     permit_number: str = Field(description="Permit number")
-    applicant: ApplicantData = Field(description="Applicant data")
-    owner: OwnerData = Field(description="Owner data")
 
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")

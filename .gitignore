@@ -12,6 +12,8 @@ logs.txt
 *.html
 *.ipynb
 *.csv
+# Include all csv files from subfolders of tests/
+!tests/**/*.csv
 
 # Distribution / packaging
 .Python

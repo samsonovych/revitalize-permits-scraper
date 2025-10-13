@@ -8,7 +8,7 @@ The models are intentionally simple and reusable across regions.
 
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ApplicantData(BaseModel):
@@ -39,8 +39,7 @@ class ApplicantData(BaseModel):
     phone_number: Optional[str] = None
     address: Optional[str] = None
 
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
 
 
 class OwnerData(BaseModel):
@@ -74,5 +73,4 @@ class OwnerData(BaseModel):
     phone_number: Optional[str] = None
     email: Optional[str] = None
 
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")

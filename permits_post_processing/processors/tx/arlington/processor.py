@@ -1,11 +1,11 @@
-"""Arlington post-processor implementing logic from test_arlington.ipynb."""
+"""Arlington post-processor implementing logic for post processing arlington permits."""
 
 from __future__ import annotations
 
 import json
 import re
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import pandas as pd
 
@@ -14,11 +14,11 @@ from permits_post_processing.models import PostProcessingResult
 
 
 class ArlingtonDefaultPostProcessor(BasePostProcessor):
-    """Arlington post-processor implementing logic from test_arlington.ipynb."""
+    """Arlington post-processor implementing logic for post processing arlington permits."""
 
     name: str = "Arlington Default Processor"
 
-    def process(self, df: pd.DataFrame, output_path: Path) -> PostProcessingResult:  # type: ignore[override]
+    def process(self, df: pd.DataFrame, output_path: Optional[Path | str] = None) -> PostProcessingResult:  # type: ignore[override]
         """Process the Arlington permits dataset."""
         before_permits = self._infer_unique_permit_count(df)
 
@@ -179,18 +179,19 @@ class ArlingtonDefaultPostProcessor(BasePostProcessor):
         result.dropna(subset=['bucket', 'status'], inplace=True)
 
         # Persist
-        out_suffix = str(output_path).lower()
-        if out_suffix.endswith(".csv"):
-            result.to_csv(output_path, index=False)
-        elif out_suffix.endswith(".parquet") or out_suffix.endswith(".pq"):
-            result.to_parquet(output_path, index=False)
-        else:
-            result.to_csv(output_path, index=False)
+        if output_path is not None:
+            out_suffix = str(output_path).lower()
+            if out_suffix.endswith(".csv"):
+                result.to_csv(output_path, index=False)
+            elif out_suffix.endswith(".parquet") or out_suffix.endswith(".pq"):
+                result.to_parquet(output_path, index=False)
+            else:
+                result.to_csv(output_path, index=False)
 
         after_permits = self._infer_unique_permit_count(result)
         return PostProcessingResult(
             df=result,
-            output_path=str(output_path),
+            output_path=str(output_path) if output_path is not None else None,
             permits_number_before=before_permits,
             permits_number_after=after_permits,
         )

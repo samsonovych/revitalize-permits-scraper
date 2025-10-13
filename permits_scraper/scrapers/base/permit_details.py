@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Dict, List, Optional, Callable, Type
 from permits_scraper.schemas.permit_record import PermitRecord
-from pydantic import BaseModel, PrivateAttr, Field
+from pydantic import BaseModel, PrivateAttr, Field, ConfigDict
 import asyncio
 import json
 import os
@@ -17,6 +17,8 @@ class PermitDetailsBaseScraper(ABC, BaseModel):
 
     _region: str = PrivateAttr(..., init=True)
     _city: str = PrivateAttr(..., init=True)
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
 
     def scrape(self, permit_numbers: List[str], *args, **kwargs) -> Dict[str, PermitRecord]:
         """Scrape the data from the URL.
@@ -154,8 +156,3 @@ class PermitDetailsBaseScraper(ABC, BaseModel):
                 progress_callback(success_chunks_inc, failed_chunks_inc, total_chunks)
             except Exception:
                 pass
-
-    class Config:
-        """Config for the permit details scraper."""
-
-        arbitrary_types_allowed = True

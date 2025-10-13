@@ -33,16 +33,13 @@ packages = [
 
 [tool.poetry.dependencies]
 python = ">=3.11.11,<3.12"
-pydantic = "^2.11.9"
+pydantic = "^2.12.0"
 pydantic-settings = "^2.10.1"
 dotenv = "^0.9.9"
 pandas = "^2.3.2"
 playwright = "^1.55.0"
-fastapi = "^0.117.1"
-uvicorn = "^0.37.0"
 beautifulsoup4 = "^4.13.5"
 tqdm = "^4.67.1"
-langchain-openai = "^0.3.33"
 pyarrow = "^21.0.0"
 fastparquet = "^2024.11.0"
 sodapy = "^2.2.0"

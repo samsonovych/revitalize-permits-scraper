@@ -10,7 +10,8 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 from permits_post_processing.models import PostProcessingResult
 import pandas as pd
-from typing import List, Any
+from typing import List, Any, Optional
+import numpy as np
 
 
 class BasePostProcessor(ABC, BaseModel):
@@ -33,14 +34,14 @@ class BasePostProcessor(ABC, BaseModel):
     name: str = Field(default="Unnamed Post-Processor", description="Human-readable name for display in UIs.")
 
     @abstractmethod
-    def process(self, df: pd.DataFrame, output_path: Path) -> PostProcessingResult:
+    def process(self, df: pd.DataFrame, output_path: Optional[Path | str] = None) -> PostProcessingResult:
         """Transform a DataFrame, write it to ``output_path``, and return summary.
 
         Parameters
         ----------
         df : pandas.DataFrame
             Input DataFrame.
-        output_path : pathlib.Path
+        output_path : pathlib.Path | str | None
             Destination path for the processed dataset. Implementations
             should infer the file format from the extension (``.csv`` or
             ``.parquet`` are recommended).
@@ -52,11 +53,18 @@ class BasePostProcessor(ABC, BaseModel):
             permit counts before/after.
         """
 
-    def concatenate_values(self, values: List[Any]) -> str:
+    @staticmethod
+    def concatenate_values(values: List[Any]) -> str:
+        """Concatenate a list of values with a newline and <AND> separator."""
+        # If all values are None, return np.nan
+        if np.all(pd.isna(values)):
+            return ""
         values = [str(v) for v in values]
         return " \n\n<AND> ".join(values)
 
-    def _infer_unique_permit_count(self, df: pd.DataFrame) -> int:
+    @staticmethod
+    def _infer_unique_permit_count(df: pd.DataFrame) -> int:
+        """Infer the number of unique permits in a DataFrame."""
         candidates: List[str] = [
             "permit_number",
             "permit id",

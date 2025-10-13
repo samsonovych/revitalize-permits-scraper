@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import List, Optional, Callable, Type, Tuple
 from permits_scraper.schemas.permit_range_log import PermitRangeLog
-from pydantic import BaseModel, PrivateAttr, Field
+from pydantic import BaseModel, PrivateAttr, Field, ConfigDict
 import json
 import os
 from uuid import uuid4
@@ -18,6 +18,8 @@ class PermitListBaseScraper(ABC, BaseModel):
 
     _region: str = PrivateAttr(..., init=True)
     _city: str = PrivateAttr(..., init=True)
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
 
     def scrape(self, start_date: date, end_date: date, *args, **kwargs) -> List[PermitRangeLog]:
         """Scrape the data from the URL.
@@ -160,6 +162,7 @@ class PermitListBaseScraper(ABC, BaseModel):
                 pass
 
     def process_progress_callback(self, progress_callback: Optional[Callable[[int, int, Optional[int]], None]], success_chunks_inc: int, failed_chunks_inc: int, total_chunks: Optional[int] = None) -> None:
+        """Process the progress callback."""
         if progress_callback is not None:
             try:
                 progress_callback(success_chunks_inc, failed_chunks_inc, total_chunks)
@@ -170,6 +173,7 @@ class PermitListBaseScraper(ABC, BaseModel):
     # Utilities
     # ------------------------
     def _iter_chunks(self, start: date, end: date, days_per_step: int) -> List[Tuple[date, date]]:
+        """Iterate over the chunks."""
         if start > end:
             raise ValueError("start_date must be on or before end_date")
 
@@ -187,6 +191,3 @@ class PermitListBaseScraper(ABC, BaseModel):
             chunks.append((cur, cur_end))
             cur = cur_end + timedelta(days=1)
         return chunks
-
-    class Config:
-        arbitrary_types_allowed = True

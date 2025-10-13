@@ -1,3 +1,5 @@
+"""Austin post-processor implementing the logic for post processing austin permits."""
+
 from __future__ import annotations
 
 import pandas as pd
@@ -5,14 +7,17 @@ import pandas as pd
 import numpy as np
 
 from permits_post_processing.base import BasePostProcessor, PostProcessingResult
+from typing import Optional
+from pathlib import Path
 
 
 class AustinDefaultPostProcessor(BasePostProcessor):
-    """Austin post-processor implementing the logic from test_austin.ipynb."""
+    """Austin post-processor implementing the logic for post processing austin permits."""
 
     name: str = "Austin Default Processor"
 
-    def process(self, df: pd.DataFrame, output_path: str) -> PostProcessingResult:  # type: ignore[override]
+    def process(self, df: pd.DataFrame, output_path: Optional[Path | str] = None) -> PostProcessingResult:  # type: ignore[override]
+        """Process the Austin permits dataset."""
         # Track permits count before
         before_permits = self._infer_unique_permit_count(df)
 
@@ -108,26 +113,25 @@ class AustinDefaultPostProcessor(BasePostProcessor):
         # Grouping by contractor_phone if present
         if "contractor_phone" in result.columns:
             result["permit_count"] = 1
-            group_cols = {col: self.concatenate_values for col in result.columns if col not in ["contractor_phone", "permit_count"] }
+            group_cols = {col: self.concatenate_values for col in result.columns if col not in ["contractor_phone", "permit_count"]}
             group_cols["permit_count"] = "count"
             result = result.groupby("contractor_phone").agg(group_cols).reset_index()
 
         # Persist
-        suffix = str(output_path).lower()
-        if suffix.endswith(".csv"):
-            result.to_csv(output_path, index=False)
-        elif suffix.endswith(".parquet") or suffix.endswith(".pq"):
-            result.to_parquet(output_path, index=False)
-        else:
-            # default to CSV
-            result.to_csv(output_path, index=False)
+        if output_path is not None:
+            suffix = str(output_path).lower()
+            if suffix.endswith(".csv"):
+                result.to_csv(output_path, index=False)
+            elif suffix.endswith(".parquet") or suffix.endswith(".pq"):
+                result.to_parquet(output_path, index=False)
+            else:
+                # default to CSV
+                result.to_csv(output_path, index=False)
 
         after_permits = self._infer_unique_permit_count(result)
         return PostProcessingResult(
             df=result,
-            output_path=str(output_path),
+            output_path=str(output_path) if output_path is not None else None,
             permits_number_before=before_permits,
             permits_number_after=after_permits,
         )
-
-

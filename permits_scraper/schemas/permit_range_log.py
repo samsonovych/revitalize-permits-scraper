@@ -7,7 +7,7 @@ The models are intentionally simple and reusable across regions.
 
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class PermitRangeLog(BaseModel):
@@ -37,5 +37,4 @@ class PermitRangeLog(BaseModel):
     end_date: str = Field(description="End date")
     output_path: Optional[str] = Field(default=None, description="Output path")
 
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
